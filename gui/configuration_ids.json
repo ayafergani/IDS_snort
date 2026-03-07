@@ -1,0 +1,48 @@
+{
+    "date_sauvegarde": "2026-02-25 00:53:49",
+    "general": {
+        "activer_ids": true,
+        "demarrage_auto": true,
+        "redemarrage_auto": true,
+        "intervalle_scan": 4,
+        "methode_detection": "hybride"
+    },
+    "seuils": {
+        "max_paquets": 5000,
+        "volume_max": 100,
+        "max_connexions": 1000,
+        "max_tentatives": 5,
+        "temps_blocage_auth": 10,
+        "ports_scan": 50,
+        "temps_scan": 10
+    },
+    "regles": [
+        {
+            "etat": "✓",
+            "regle": "Alerte si trafic ICMP > 500/sec"
+        },
+        {
+            "etat": "✓",
+            "regle": "Bloquer port 23 (Telnet)"
+        },
+        {
+            "etat": "✓",
+            "regle": "Surveiller port 22 (SSH)"
+        },
+        {
+            "etat": "✓",
+            "regle": "Alerte si SYN > 1000/sec"
+        }
+    ],
+    "securite": {
+        "blacklist": [
+            "1.2.3.4",
+            "5.6.7.8",
+            "10.0.0.50"
+        ],
+        "blocage_auto": true,
+        "temps_blocage_auto": 36,
+        "ip_internes_only": true,
+        "rejeter_externes": true
+    }
+}

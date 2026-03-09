@@ -562,7 +562,7 @@ class InterfaceParametresIDS(QMainWindow):
         
         self.table_regles = QTableWidget()
         self.table_regles.setColumnCount(2)
-        self.table_regles.setHorizontalHeaderLabels(["État", "Règle"])
+        self.table_regles.setHorizontalHeaderLabels(["SID", "Règle"])
         self.table_regles.horizontalHeader().setStretchLastSection(True)
         self.table_regles.setAlternatingRowColors(True)
         self.table_regles.setStyleSheet("""
@@ -585,28 +585,7 @@ class InterfaceParametresIDS(QMainWindow):
                 font-weight: bold;
             }
         """)
-        
-        # Règles par défaut
-        regles_defaut = [
-            ("✓", "Alerte si trafic ICMP > 500/sec"),
-            ("✓", "Bloquer port 23 (Telnet)"),
-            ("✓", "Surveiller port 22 (SSH)"),
-            ("✓", "Alerte si SYN > 1000/sec"),
-        ]
-        
-        self.table_regles.setRowCount(len(regles_defaut))
-        for i, (etat, regle) in enumerate(regles_defaut):
-            item_etat = QTableWidgetItem(etat)
-            item_etat.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item_etat.setForeground(QColor("#9b59b6"))
-            self.table_regles.setItem(i, 0, item_etat)
-            
-            item_regle = QTableWidgetItem(regle)
-            item_regle.setForeground(QColor("white"))
-            self.table_regles.setItem(i, 1, item_regle)
 
-
-        
         self.table_regles.resizeColumnsToContents()
         liste_layout.addWidget(self.table_regles)
         group_liste.setLayout(liste_layout)
@@ -701,11 +680,11 @@ class InterfaceParametresIDS(QMainWindow):
         layout.addWidget(splitter)
         return widget
 
-    def add_rule_to_table(self, rule):
+    def add_rule_to_table(self, rule,sid):
         row_count = self.table_regles.rowCount()
         self.table_regles.insertRow(row_count)
 
-        item_etat = QTableWidgetItem("✓")
+        item_etat = QTableWidgetItem(str(sid))
         item_regle = QTableWidgetItem(rule)
 
         self.table_regles.setItem(row_count, 0, item_etat)

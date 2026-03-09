@@ -611,12 +611,6 @@ class InterfaceParametresIDS(QMainWindow):
         liste_layout.addWidget(self.table_regles)
         group_liste.setLayout(liste_layout)
         left_layout.addWidget(group_liste)
-
-        def add_rule_to_table(rule):
-            row_count = self.table_regles.rowCount()
-            self.table_regles.insertRow(row_count)
-            self.table_regles.setItem(row_count, 0, QTableWidgetItem("✓"))
-            self.table_regles.setItem(row_count, 1, QTableWidgetItem(rule))
         
         # Panneau droit - Gestion des règles
         right_panel = QWidget()
@@ -706,6 +700,16 @@ class InterfaceParametresIDS(QMainWindow):
         
         layout.addWidget(splitter)
         return widget
+
+    def add_rule_to_table(self, rule):
+        row_count = self.table_regles.rowCount()
+        self.table_regles.insertRow(row_count)
+
+        item_etat = QTableWidgetItem("✓")
+        item_regle = QTableWidgetItem(rule)
+
+        self.table_regles.setItem(row_count, 0, item_etat)
+        self.table_regles.setItem(row_count, 1, item_regle)
     
     def create_securite_tab(self):
         """Crée l'onglet Sécurité Réseau (sans liste blanche)"""

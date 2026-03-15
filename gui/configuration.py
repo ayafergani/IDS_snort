@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QFont, QColor, QPalette
-from data.queries import fetch_rules_from_db
+#from data.queries import fetch_rules_from_db
 
 class InterfaceParametresIDS(QMainWindow):
     def __init__(self):

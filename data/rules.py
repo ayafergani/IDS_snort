@@ -75,3 +75,11 @@ def supprimer_regle(sid):
         (sid,)
     )
     conn.commit()
+
+def reset_db():
+    cursor.execute(
+        """
+           TRUNCATE TABLE regles;
+        """
+    )
+    conn.commit()

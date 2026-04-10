@@ -1,123 +1,86 @@
 import subprocess
 import time
-import os
-import sys
+import threading
 
 
 class SnortManager:
     def __init__(self):
         self.snort_running = False
-        self.snort_pid = None
-        self.snort_process = None  # Pour garder le processus
+        self.snort_process = None
+        self.output_thread = None
 
     def start_snort(self):
         try:
             interface = "enp0s3"
 
-            print(f"🚀 Lancement de Snort sur l'interface {interface}...")
-            print("📡 Snort va afficher les alertes en temps réel dans le terminal")
-            print("-" * 60)
+            print(f"\n{'=' * 70}")
+            print(f"🔍 SNORT - SURVEILLANCE RÉSEAU")
+            print(f"{'=' * 70}")
+            print(f"Interface: {interface}")
+            print(f"Mode: Alertes uniquement (moins de bruit)")
+            print(f"{'=' * 70}\n")
 
-            # Commande SANS -D (pas de mode daemon) pour voir la sortie
-            cmd = [
-                "sudo", "snort",
-                "-A", "console",  # Mode console pour voir les alertes
-                "-i", interface,
-                "-c", "/etc/snort/snort.conf",
-                "-l", "/var/log/snort",
-                "-v"  # Mode verbeux pour voir tout le trafic
-            ]
+            # Option 1: Alertes seulement (recommandé)
+            cmd = f"sudo snort -A console -i {interface} -c /etc/snort/snort.conf"
 
-            # Lancer Snort et capturer la sortie en temps réel
+            # Option 2: Pour voir plus de détails sur les alertes:
+            # cmd = f"sudo snort -A full -i {interface} -c /etc/snort/snort.conf"
+
+            # Option 3: Pour tout voir (comme avant):
+            # cmd = f"sudo snort -v -i {interface} -A console"
+
             self.snort_process = subprocess.Popen(
                 cmd,
+                shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,
-                universal_newlines=True
+                bufsize=1
             )
 
-            # Attendre que Snort démarre
-            time.sleep(2)
+            # Démarrer un thread pour lire la sortie
+            self.output_thread = threading.Thread(target=self.read_output, daemon=True)
+            self.output_thread.start()
 
-            # Vérifier si le processus tourne
-            if self.snort_process.poll() is None:
-                self.snort_running = True
-                print("✅ Snort démarré avec succès - Surveillance active")
-                print("-" * 60)
-
-                # Lire et afficher la sortie en temps réel
-                self.read_output()
-                return True
-            else:
-                print("❌ Snort n'a pas démarré")
-                return False
+            self.snort_running = True
+            return True
 
         except Exception as e:
-            print(f"❌ Exception: {e}")
+            print(f"❌ Erreur: {e}")
             return False
 
     def read_output(self):
-        """Lit et affiche la sortie de Snort en temps réel"""
-        try:
-            for line in iter(self.snort_process.stdout.readline, ''):
-                if line:
-                    # Colorer les alertes en rouge
-                    if "ALERT" in line or "ATTACK" in line or "WARNING" in line:
-                        print(f"\033[91m{line.strip()}\033[0m")  # Rouge
-                    elif "Normal" in line or "OK" in line:
-                        print(f"\033[92m{line.strip()}\033[0m")  # Vert
+        """Affiche les alertes en temps réel avec mise en forme"""
+        for line in iter(self.snort_process.stdout.readline, ''):
+            if line:
+                line = line.strip()
+                if line and not line.startswith("=+"):
+                    # Mettre en évidence les alertes importantes
+                    if "ALERT" in line or "ATTACK" in line:
+                        print(f"\033[91m🚨 {line}\033[0m")  # Rouge
+                    elif "UDP" in line or "TCP" in line:
+                        # Afficher les paquets en gris clair
+                        print(f"\033[90m📦 {line}\033[0m")
                     else:
-                        print(line.strip())
-                if self.snort_process.poll() is not None:
-                    break
-        except Exception as e:
-            print(f"Erreur lecture: {e}")
-
-    def start_snort_daemon(self):
-        """Version daemon (silencieuse) - alternative"""
-        try:
-            interface = "enp0s3"
-
-            cmd = [
-                "sudo", "snort",
-                "-A", "fast",
-                "-i", interface,
-                "-c", "/etc/snort/snort.conf",
-                "-l", "/var/log/snort",
-                "-D"
-            ]
-
-            subprocess.Popen(cmd)
-            time.sleep(2)
-
-            check = subprocess.run(["pgrep", "-f", "snort"], capture_output=True)
-            if check.returncode == 0:
-                self.snort_running = True
-                print("✅ Snort démarré en mode daemon (silencieux)")
-                return True
-            return False
-        except Exception as e:
-            print(f"❌ Exception: {e}")
-            return False
+                        print(line)
+            if self.snort_process.poll() is not None:
+                break
 
     def stop_snort(self):
         try:
-            # Arrêter le processus si on l'a lancé en mode console
-            if self.snort_process and self.snort_process.poll() is None:
+            if self.snort_process:
                 self.snort_process.terminate()
                 time.sleep(2)
                 if self.snort_process.poll() is None:
                     self.snort_process.kill()
-                self.snort_process = None
 
             # Tuer tous les processus Snort
             subprocess.run(["sudo", "pkill", "-f", "snort"], capture_output=True)
 
             self.snort_running = False
-            print("\n" + "-" * 60)
+            print("\n" + "=" * 70)
             print("🛑 Snort arrêté")
+            print("=" * 70)
             return True
         except Exception as e:
             print(f"❌ Erreur arrêt: {e}")

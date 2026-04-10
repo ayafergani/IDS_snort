@@ -11,7 +11,7 @@ class SnortManager:
                 "-n",  # ⚠️ important (no password prompt)
                 "snort",
                 "-A", "fast",
-                "-i", "eth0",
+                "-i", "enp0s3",
                 "-c", "/etc/snort/snort.conf",
                 "-l", "/var/log/snort"
             ]

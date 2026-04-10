@@ -8,9 +8,10 @@ class SnortManager:
         if self.process is None:
             cmd = [
                 "sudo",
+                "-n",  # ⚠️ important (no password prompt)
                 "snort",
                 "-A", "fast",
-                "-i", "eth0",  # change interface
+                "-i", "eth0",
                 "-c", "/etc/snort/snort.conf",
                 "-l", "/var/log/snort"
             ]

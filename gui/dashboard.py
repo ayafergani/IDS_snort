@@ -156,7 +156,6 @@ class SimplePage(QWidget):
                 background-color: {COLORS['info']}99;
             }}
         """)
-        self.start_stop_btn.clicked.connect(self.toggle_system)
         header_layout.addWidget(self.start_stop_btn)
 
         main_layout.addLayout(header_layout)
@@ -266,8 +265,10 @@ class SimplePage(QWidget):
             self.snort_running = False
 
         if not self.snort_running:
-            print("Snort is not running")
+            print("⚠️ Snort is not running")
             return
+
+    print("Snort running OK")
 
     def reset_button_text(self):
         """Réinitialise le texte du bouton après une erreur"""
@@ -329,8 +330,9 @@ class SimplePage(QWidget):
         self.risk_level = self.db_manager.calculate_risk_level()
 
     def refresh_dashboard(self):
-        # Ne mettre à jour que si le système est en cours d'exécution
-        if not self.is_running:
+
+        # ✔️ utiliser snort_running (et sécuriser)
+        if not hasattr(self, "snort_running") or not self.snort_running:
             return
 
         try:
@@ -363,7 +365,8 @@ class SimplePage(QWidget):
 
             hist_data = self.db_manager.get_attacks_last_24h()
             self.histogram.update_histogram(hist_data)
-            print("📊 Mise à jour dashboard - Total attaques:", self.attack_stats['total_attacks'])
+
+            print("📊 Dashboard updated:", new_attacks)
 
         except Exception as e:
             print(f"❌ Erreur mise à jour: {e}")

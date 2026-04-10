@@ -18,6 +18,7 @@ class SnortManager:
 
             if self.snort_process and self.snort_process.poll() is None:
                 print("⚠️ Snort déjà en cours")
+                self.snort_running = True
                 return
 
             self.snort_process = subprocess.Popen(cmd)

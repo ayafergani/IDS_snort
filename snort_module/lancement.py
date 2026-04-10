@@ -9,32 +9,36 @@ class SnortManager:
             cmd = [
                 "sudo", "-n", "snort",
                 "-A", "fast",
-                "-i", "eth0",  # ⚠️ vérifier interface
+                "-i", "ens33",  # ⚠️ adapte
                 "-c", "/etc/snort/snort.conf",
                 "-l", "/var/log/snort"
             ]
 
-            self.snort_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-
-            # 🔥 attendre 1 seconde pour vérifier si Snort crash
-            import time
-            time.sleep(1)
-
-            if self.snort_process.poll() is not None:
-                err = self.snort_process.stderr.read()
-                print("❌ Snort FAILED TO START")
-                print(err)
+            # 🔥 éviter double lancement
+            if hasattr(self, "snort_process") and self.snort_process and self.snort_process.poll() is None:
+                print("⚠️ Snort déjà en cours")
                 return
 
-            print("✅ Snort started successfully")
+            self.snort_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE
+            )
+
+            import time
+            time.sleep(2)
+
+            # ❗ Vérification propre
+            if self.snort_process.poll() is None:
+                print("✅ Snort RUNNING")
+                self.start_btn.setText("🟢 RUNNING")
+            else:
+                err = self.snort_process.stderr.read().decode()
+                print("❌ Snort FAILED TO START")
+                print(err)
 
         except Exception as e:
-            print("❌ Error:", e)
+            print("❌ Exception:", e)
 
     def stop_snort(self):
         if self.process:

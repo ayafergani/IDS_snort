@@ -5,25 +5,36 @@ class SnortManager:
         self.process = None
 
     def start_snort(self):
-        if self.process is None:
+        try:
             cmd = [
-                "sudo",
-                "-n",  # ⚠️ important (no password prompt)
-                "snort",
+                "sudo", "-n", "snort",
                 "-A", "fast",
-                "-i", "enp0s3",
+                "-i", "eth0",  # ⚠️ vérifier interface
                 "-c", "/etc/snort/snort.conf",
                 "-l", "/var/log/snort"
             ]
 
-            self.process = subprocess.Popen(
+            self.snort_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
 
-            print("Snort started")
+            # 🔥 attendre 1 seconde pour vérifier si Snort crash
+            import time
+            time.sleep(1)
+
+            if self.snort_process.poll() is not None:
+                err = self.snort_process.stderr.read()
+                print("❌ Snort FAILED TO START")
+                print(err)
+                return
+
+            print("✅ Snort started successfully")
+
+        except Exception as e:
+            print("❌ Error:", e)
 
     def stop_snort(self):
         if self.process:

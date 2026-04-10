@@ -10,14 +10,14 @@ from PyQt6.QtWidgets import (
     QTabWidget, QListWidget, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout, QFileDialog
 )
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
 
 # On importe les couleurs de ta config centrale pour la cohérence
 from config import COLORS
 from data.rules import afficher_db, ajouter_regle, modifier_regle, supprimer_regle, reset_db
 
-# ================== STYLES UNIFIÉS (Inspire de alerte.py) ==================
+# ================== STYLES UNIFIÉS ==================
 INPUT_STYLE = f"""
     QComboBox, QDateEdit, QLineEdit, QSpinBox, QTextEdit, QListWidget {{
         background-color: #334155;
@@ -54,6 +54,17 @@ BTN_DANGER_STYLE = """
     QPushButton:hover { background-color: #B91C1C; }
 """
 
+BTN_SUCCESS_STYLE = """
+    QPushButton {
+        background-color: #10B981;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: bold;
+    }
+    QPushButton:hover { background-color: #059669; }
+"""
+
 TABLE_STYLE = f"""
     QTableWidget {{
         background-color: {COLORS['bg_medium']};
@@ -79,6 +90,14 @@ class InterfaceParametresIDS(QMainWindow):
         super().__init__()
         self.fichier_config = "configuration_ids.json"
 
+        # Chemins Snort
+        self.snort_rules_dir = "/etc/snort/rules"
+        self.snort_custom_rules_file = "/etc/snort/rules/custom.rules"
+        self.snort_local_rules_file = "/etc/snort/rules/local.rules"
+
+        # Vérifier et créer les dossiers si nécessaire
+        self.ensure_snort_directories()
+
         # Fond sombre SaaS
         self.setAutoFillBackground(True)
         palette = self.palette()
@@ -87,6 +106,22 @@ class InterfaceParametresIDS(QMainWindow):
 
         self.initUI()
         self.load_rules()
+
+    def ensure_snort_directories(self):
+        """Vérifie et crée les dossiers nécessaires pour Snort"""
+        try:
+            # Créer le dossier rules s'il n'existe pas
+            if not os.path.exists(self.snort_rules_dir):
+                os.makedirs(self.snort_rules_dir, exist_ok=True)
+                print(f"✅ Dossier créé: {self.snort_rules_dir}")
+        except PermissionError:
+            print(f"⚠️ Permission refusée pour créer {self.snort_rules_dir}")
+            # Utiliser un dossier local comme fallback
+            self.snort_rules_dir = os.path.expanduser("~/snort_rules")
+            self.snort_custom_rules_file = os.path.join(self.snort_rules_dir, "custom.rules")
+            self.snort_local_rules_file = os.path.join(self.snort_rules_dir, "local.rules")
+            os.makedirs(self.snort_rules_dir, exist_ok=True)
+            print(f"📁 Utilisation du dossier alternatif: {self.snort_rules_dir}")
 
     def initUI(self):
         screen = QApplication.primaryScreen()
@@ -127,14 +162,15 @@ class InterfaceParametresIDS(QMainWindow):
         tabs.addTab(self.create_seuils_tab(), "📊 Seuils")
         tabs.addTab(self.create_regles_tab(), "📋 Règles")
         tabs.addTab(self.create_securite_tab(), "🛡️ Sécurité Réseau")
+        tabs.addTab(self.create_snort_tab(), "🐍 Export Snort")
 
         main_layout.addWidget(tabs)
 
         # Barre d'outils inférieure
         toolbar_layout = QHBoxLayout()
-        self.btn_appliquer = QPushButton("🚀 APPLIQUER")
+        self.btn_appliquer = QPushButton("🚀 APPLIQUER & EXPORTER")
         self.btn_appliquer.setStyleSheet(BTN_PRIMARY_STYLE)
-        self.btn_appliquer.clicked.connect(self.appliquer_configuration)
+        self.btn_appliquer.clicked.connect(self.appliquer_et_exporter)
 
         self.btn_reset = QPushButton("🔄 RESET")
         self.btn_reset.setStyleSheet(BTN_DANGER_STYLE)
@@ -156,6 +192,207 @@ class InterfaceParametresIDS(QMainWindow):
 
         main_layout.addLayout(toolbar_layout)
         self.charger_configuration_auto()
+
+    def create_snort_tab(self):
+        """Onglet pour la configuration Snort"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Groupe d'export
+        group_export = self.create_styled_group("📁 Export des règles vers Snort")
+        export_layout = QVBoxLayout()
+
+        # Info sur le chemin
+        path_info = QLabel(f"📂 Dossier de destination: {self.snort_rules_dir}")
+        path_info.setStyleSheet("color: #94A3B8; font-family: monospace; padding: 5px;")
+        export_layout.addWidget(path_info)
+
+        # Boutons d'export
+        btn_layout = QHBoxLayout()
+        self.btn_export_snort = QPushButton("📤 Exporter vers Snort")
+        self.btn_export_snort.setStyleSheet(BTN_SUCCESS_STYLE)
+        self.btn_export_snort.clicked.connect(self.exporter_regles_snort)
+        btn_layout.addWidget(self.btn_export_snort)
+
+        self.btn_export_personnalise = QPushButton("💾 Exporter vers fichier personnalisé")
+        self.btn_export_personnalise.setStyleSheet(BTN_PRIMARY_STYLE)
+        self.btn_export_personnalise.clicked.connect(self.exporter_regles_fichier)
+        btn_layout.addWidget(self.btn_export_personnalise)
+
+        export_layout.addLayout(btn_layout)
+        group_export.setLayout(export_layout)
+
+        # Groupe d'aperçu
+        group_preview = self.create_styled_group("📄 Aperçu des règles générées")
+        preview_layout = QVBoxLayout()
+
+        self.preview_text = QTextEdit()
+        self.preview_text.setStyleSheet(INPUT_STYLE)
+        self.preview_text.setReadOnly(True)
+        preview_layout.addWidget(self.preview_text)
+
+        group_preview.setLayout(preview_layout)
+
+        layout.addWidget(group_export)
+        layout.addWidget(group_preview)
+
+        return widget
+
+    def generer_fichier_regles(self):
+        """Génère le contenu du fichier de règles Snort à partir de la BDD"""
+        try:
+            rules = afficher_db()
+
+            # En-tête du fichier
+            header = f"""# ============================================
+# FICHIER DE RÈGLES SNORT - GÉNÉRÉ AUTOMATIQUEMENT
+# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Console IDS - Toutes les règles sont actives
+# ============================================
+
+# Règles personnalisées générées depuis la base de données
+# Total: {len(rules)} règle(s)
+
+"""
+
+            # Corps des règles
+            rules_content = []
+            for sid, rule in rules:
+                # Nettoyer la règle si nécessaire
+                rule = rule.strip()
+                if rule and not rule.startswith('#'):
+                    # Ajouter le sid si pas présent
+                    if 'sid:' not in rule:
+                        rule = rule.rstrip(')') + f" sid:{sid};)"
+                    rules_content.append(rule)
+                elif rule and rule.startswith('#'):
+                    # Garder les commentaires
+                    rules_content.append(rule)
+                else:
+                    rules_content.append(f"# Règle {sid}: {rule}")
+
+            # Assemblage final
+            full_content = header + "\n".join(rules_content)
+
+            # Ajouter des règles par défaut si la base est vide
+            if not rules_content:
+                full_content += """
+# Règles par défaut - Surveillance de base
+alert icmp any any -> $HOME_NET any (msg:"ICMP Echo Request détecté"; itype:8; sid:1000001; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"Tentative SSH détectée"; flow:to_server,established; sid:1000002; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"Trafic HTTP détecté"; flow:to_server,established; sid:1000003; rev:1;)
+"""
+
+            return full_content
+
+        except Exception as e:
+            print(f"❌ Erreur génération règles: {e}")
+            return f"# Erreur lors de la génération des règles: {e}"
+
+    def exporter_regles_snort(self):
+        """Exporte les règles vers le dossier Snort"""
+        try:
+            # Générer le contenu
+            content = self.generer_fichier_regles()
+
+            # Afficher l'aperçu
+            self.preview_text.setText(content)
+
+            # Écrire dans le fichier custom.rules
+            with open(self.snort_custom_rules_file, 'w') as f:
+                f.write(content)
+
+            # Optionnel: ajouter une ligne include dans snort.conf si nécessaire
+            self.verifier_include_snort_conf()
+
+            self.status_bar.setText(f"✅ Règles exportées avec succès vers {self.snort_custom_rules_file}")
+            QMessageBox.information(
+                self,
+                "✅ Export réussi",
+                f"Les règles ont été exportées vers:\n{self.snort_custom_rules_file}\n\n"
+                f"Redémarrez Snort pour appliquer les modifications:\n"
+                f"sudo systemctl restart snort\nou\nsudo pkill -f snort"
+            )
+
+        except PermissionError:
+            # Fallback: proposer d'exporter avec sudo
+            reply = QMessageBox.question(
+                self,
+                "Permission refusée",
+                f"Permission refusée pour écrire dans {self.snort_custom_rules_file}\n\n"
+                "Voulez-vous exporter vers un fichier local ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.exporter_regles_fichier()
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ Erreur", f"Erreur lors de l'export:\n{str(e)}")
+            self.status_bar.setText(f"❌ Erreur: {str(e)}")
+
+    def exporter_regles_fichier(self):
+        """Exporte les règles vers un fichier choisi par l'utilisateur"""
+        try:
+            content = self.generer_fichier_regles()
+
+            # Afficher l'aperçu
+            self.preview_text.setText(content)
+
+            # Demander le chemin de sauvegarde
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Enregistrer les règles Snort",
+                os.path.expanduser(f"~/snort_rules_{datetime.now().strftime('%Y%m%d_%H%M%S')}.rules"),
+                "Fichiers règles (*.rules);;Tous les fichiers (*)"
+            )
+
+            if path:
+                with open(path, 'w') as f:
+                    f.write(content)
+                self.status_bar.setText(f"✅ Règles sauvegardées: {path}")
+                QMessageBox.information(self, "✅ Succès", f"Fichier sauvegardé:\n{path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ Erreur", f"Erreur lors de la sauvegarde:\n{str(e)}")
+
+    def verifier_include_snort_conf(self):
+        """Vérifie et ajoute l'include des règles personnalisées dans snort.conf"""
+        snort_conf = "/etc/snort/snort.conf"
+        include_line = f"include {self.snort_custom_rules_file}"
+
+        try:
+            if os.path.exists(snort_conf):
+                with open(snort_conf, 'r') as f:
+                    content = f.read()
+
+                if include_line not in content:
+                    # Ajouter l'include à la fin
+                    with open(snort_conf, 'a') as f:
+                        f.write(f"\n# Règles personnalisées générées par la console IDS\n{include_line}\n")
+                    print(f"✅ Include ajouté dans {snort_conf}")
+
+        except PermissionError:
+            print(f"⚠️ Permission refusée pour modifier {snort_conf}")
+            print(f"   Ajoutez manuellement: {include_line}")
+
+    def appliquer_et_exporter(self):
+        """Applique la configuration ET exporte les règles vers Snort"""
+        # Appliquer la configuration
+        self.appliquer_configuration()
+
+        # Exporter les règles
+        self.exporter_regles_snort()
+
+    def create_styled_group(self, title):
+        group = QGroupBox(f" {title} ")
+        group.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLORS['info']}; font-weight: bold; border: 1px solid {COLORS['accent']};
+                border-radius: 8px; margin-top: 15px; padding-top: 20px; background-color: {COLORS['bg_medium']};
+            }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 15px; padding: 0 5px; }}
+        """)
+        return group
 
     def create_general_tab(self):
         widget = QWidget()
@@ -281,18 +518,7 @@ class InterfaceParametresIDS(QMainWindow):
         self.btn_blacklist_supprimer.clicked.connect(lambda: self.supprimer_ip("blacklist"))
         return widget
 
-    def create_styled_group(self, title):
-        group = QGroupBox(f" {title} ")
-        group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLORS['info']}; font-weight: bold; border: 1px solid {COLORS['accent']};
-                border-radius: 8px; margin-top: 15px; padding-top: 20px; background-color: {COLORS['bg_medium']};
-            }}
-            QGroupBox::title {{ subcontrol-origin: margin; left: 15px; padding: 0 5px; }}
-        """)
-        return group
-
-    # --- GARDE TOUTE TA LOGIQUE CI-DESSOUS ---
+    # --- LOGIQUE EXISTANTE ---
     def toggle_ids(self, etat):
         status = "ACTIF" if etat else "INACTIF"
         self.status_label.setText(f"● STATUT: {status}")
@@ -335,14 +561,20 @@ class InterfaceParametresIDS(QMainWindow):
 
     def ajouter_ip(self, t):
         ip = self.edit_nouvelle_ip.text().strip()
-        if ip: self.blacklist.addItem(ip); self.edit_nouvelle_ip.clear()
+        if ip:
+            self.blacklist.addItem(ip)
+            self.edit_nouvelle_ip.clear()
 
     def supprimer_ip(self, t):
         current = self.blacklist.currentItem()
-        if current: self.blacklist.takeItem(self.blacklist.row(current))
+        if current:
+            self.blacklist.takeItem(self.blacklist.row(current))
 
     def appliquer_configuration(self):
-        QMessageBox.information(self, "Succès", "✅ Configuration poussée vers le moteur IDS avec succès.")
+        """Applique la configuration et exporte les règles"""
+        # Ici vous pouvez ajouter d'autres actions de configuration
+        self.exporter_regles_snort()
+        QMessageBox.information(self, "Succès", "✅ Configuration appliquée et règles exportées vers Snort.")
 
     def reset_configuration(self):
         if QMessageBox.question(self, "Confirmer",
@@ -354,7 +586,8 @@ class InterfaceParametresIDS(QMainWindow):
         config = {"date": str(datetime.now()), "rules_count": self.table_regles.rowCount()}
         path, _ = QFileDialog.getSaveFileName(self, "Sauver JSON", "config.json", "*.json")
         if path:
-            with open(path, 'w') as f: json.dump(config, f)
+            with open(path, 'w') as f:
+                json.dump(config, f)
             QMessageBox.information(self, "Ok", "Fichier config généré.")
 
     def charger_configuration_auto(self):

@@ -262,17 +262,24 @@ class SimplePage(QWidget):
         self.update_timer.timeout.connect(self.refresh_dashboard)
         # ⚡ NE PAS démarrer le timer automatiquement
 
-    # ✅ MÉTHODE TOGGLE CORRIGÉE
     def toggle_system(self):
         """Active ou désactive Snort et la mise à jour en temps réel"""
         if self.is_running:
             # === ARRÊTER LE SYSTÈME ===
-            print("🛑 Arrêt du système...")
-            self.snort.stop_snort()
+            print("🛑 Arrêt de Snort...")
+
+            # 1. Arrêter Snort (sans fermer l'app)
+            if hasattr(self, 'snort') and self.snort:
+                self.snort.stop_snort()
+
+            # 2. Arrêter le timer de mise à jour
             self.update_timer.stop()
+
+            # 3. Mettre à jour les états
             self.is_running = False
             self.snort_running = False
 
+            # 4. Changer le bouton en START (bleu)
             self.start_stop_btn.setText("▶️ START")
             self.start_stop_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -291,17 +298,20 @@ class SimplePage(QWidget):
                     background-color: {COLORS['info']}99;
                 }}
             """)
-            print("✅ Système arrêté")
+            print("✅ Snort arrêté - Application toujours active")
 
         else:
             # === DÉMARRER LE SYSTÈME ===
-            print("🚀 Démarrage du système...")
+            print("🚀 Démarrage de Snort...")
+
+            # Créer SnortManager s'il n'existe pas
+            if not hasattr(self, 'snort') or self.snort is None:
+                self.snort = SnortManager(interface="enp0s3")
 
             # Démarrer Snort
-            success = start_snort(interface="enp0s3")
+            success = self.snort.start_snort()
 
-            # Vérifier si Snort tourne vraiment
-            if success or self.snort.is_running():
+            if success:
                 # Démarrer le timer de mise à jour
                 self.update_timer.start(5000)
                 self.is_running = True
@@ -326,9 +336,8 @@ class SimplePage(QWidget):
                     }}
                 """)
 
-                # Rafraîchir immédiatement
                 self.refresh_dashboard()
-                print("✅ Système démarré avec succès")
+                print("✅ Snort démarré")
             else:
                 self.start_stop_btn.setText("❌ ERREUR")
                 print("❌ Échec du démarrage de Snort")

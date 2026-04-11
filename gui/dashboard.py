@@ -298,7 +298,7 @@ class SimplePage(QWidget):
             print("🚀 Démarrage du système...")
 
             # Démarrer Snort
-            success = self.snort.start_snort()
+            success = self.snort.start()
 
             # Vérifier si Snort tourne vraiment
             if success or self.snort.is_running():
@@ -484,7 +484,7 @@ class SimplePage(QWidget):
         """Fermeture propre de l'application"""
         # Arrêter Snort si encore en cours d'exécution
         if self.is_running:
-            self.snort.stop_snort()
+            self.snort.stop()
 
         # Fermer la connexion à la base de données
         if hasattr(self, 'db_manager') and self.db_manager.connection:

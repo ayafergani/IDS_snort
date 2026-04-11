@@ -23,6 +23,7 @@ class SnortManager:
         self.alert_count = 0
         self.db_connection = None
         self.db_cursor = None
+        self.db_insert_count = 0
 
         # Créer le dossier de logs
         os.makedirs(log_dir, exist_ok=True)
@@ -41,8 +42,29 @@ class SnortManager:
             if self.db_connection:
                 self.db_cursor = self.db_connection.cursor()
                 print("✅ Connexion à PostgreSQL établie")
+                return True
         except Exception as e:
             print(f"⚠️ Base de données non disponible: {e}")
+        return False
+
+    def ensure_db_connection(self):
+        """Vérifie et rétablit la connexion DB si nécessaire"""
+        try:
+            if not self.db_connection or self.db_connection.closed:
+                print("⚠️ Connexion DB perdue, reconnexion...")
+                return self.init_database()
+
+            # Tester la connexion
+            self.db_cursor.execute("SELECT 1")
+            self.db_cursor.fetchone()
+            return True
+        except Exception:
+            print("⚠️ Connexion DB perdue, reconnexion...")
+            try:
+                self.db_connection.close()
+            except:
+                pass
+            return self.init_database()
 
     def get_network_metrics(self):
         """Récupère les métriques réseau (loss, traffic, services)"""
@@ -66,8 +88,8 @@ class SnortManager:
                 rx_bytes = int(f.read().strip())
             with open(f"/sys/class/net/{self.interface}/statistics/tx_bytes", 'r') as f:
                 tx_bytes = int(f.read().strip())
-            rx_traffic = f"{rx_bytes/1024/1024:.2f}"
-            tx_traffic = f"{tx_bytes/1024/1024:.2f}"
+            rx_traffic = f"{rx_bytes / 1024 / 1024:.2f}"
+            tx_traffic = f"{tx_bytes / 1024 / 1024:.2f}"
         except:
             pass
 
@@ -89,6 +111,8 @@ class SnortManager:
         ts_match = re.search(r'(\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+)', ip_line)
         if ts_match:
             timestamp = ts_match.group(1)
+        else:
+            timestamp = datetime.now().strftime("%m/%d-%H:%M:%S")
 
         # Extraire le SID
         sid = ""
@@ -117,17 +141,17 @@ class SnortManager:
         # Extraire les IP et ports
         ip_ports = re.findall(r'(\d+\.\d+\.\d+\.\d+):(\d+)', ip_line)
 
-        src_ip = "N/A"
-        src_port = "N/A"
-        dst_ip = "N/A"
-        dst_port = "N/A"
+        src_ip = None
+        src_port = None
+        dst_ip = None
+        dst_port = None
 
         if len(ip_ports) >= 1:
             src_ip = ip_ports[0][0]
-            src_port = ip_ports[0][1]
+            src_port = int(ip_ports[0][1]) if ip_ports[0][1].isdigit() else None
         if len(ip_ports) >= 2:
             dst_ip = ip_ports[1][0]
-            dst_port = ip_ports[1][1]
+            dst_port = int(ip_ports[1][1]) if ip_ports[1][1].isdigit() else None
 
         # Récupérer les métriques réseau
         loss_rate, traffic, services = self.get_network_metrics()
@@ -145,15 +169,25 @@ class SnortManager:
             'loss': loss_rate,
             'traffic': traffic,
             'services': services,
-            'detection_engine': sid.split(':')[0] if sid else None
+            'detection_engine': sid.split(':')[0] if sid else 'Snort'
         }
 
     def save_to_db(self, alert):
-        """Insère l'alerte dans la base (comme parser_et_inserer_alertes)"""
-        if not self.db_connection:
+        """Insère l'alerte dans la base avec gestion des erreurs"""
+        if not self.ensure_db_connection():
+            print("   ⚠️ Pas de connexion DB, alerte non sauvegardée")
             return False
 
         try:
+            # Nettoyer les valeurs
+            attack_type = alert['attack_type']
+            if attack_type and len(attack_type) > 200:
+                attack_type = attack_type[:200]
+
+            details = alert['attack_type']
+            if details and len(details) > 500:
+                details = details[:500]
+
             self.db_cursor.execute("""
                 INSERT INTO alertes (
                     timestamp, source_ip, destination_ip,
@@ -166,21 +200,28 @@ class SnortManager:
                 alert['timestamp'],
                 alert['src_ip'],
                 alert['dst_ip'],
-                alert['attack_type'],
+                attack_type,
                 alert['severity'],
                 alert['detection_engine'],
-                alert['attack_type'],  # details
+                details,
                 alert['protocol'],
-                alert['src_port'] if alert['src_port'] != "N/A" else None,
-                alert['dst_port'] if alert['dst_port'] != "N/A" else None,
+                alert['src_port'],
+                alert['dst_port'],
                 alert['loss'],
                 alert['traffic'],
                 alert['services']
             ))
             self.db_connection.commit()
+            self.db_insert_count += 1
             return True
+
         except Exception as e:
-            print(f"❌ Erreur insertion DB: {e}")
+            print(f"   ❌ Erreur insertion DB: {e}")
+            # 🔥 CRUCIAL: Annuler la transaction pour pouvoir continuer
+            try:
+                self.db_connection.rollback()
+            except Exception as rollback_err:
+                print(f"   ↳ Erreur rollback: {rollback_err}")
             return False
 
     def start_snort(self):
@@ -250,7 +291,7 @@ class SnortManager:
                                     # Sauvegarder en DB
                                     if self.db_connection:
                                         if self.save_to_db(alert):
-                                            print(f"   💾 [DB] Alerte #{self.alert_count} enregistrée")
+                                            print(f"   💾 [DB] Alerte #{self.db_insert_count} enregistrée")
                 except Exception as e:
                     print(f"Erreur lecture fichier: {e}")
             else:
@@ -283,8 +324,11 @@ class SnortManager:
         subprocess.run(["sudo", "pkill", "-f", "snort"], capture_output=True)
 
         if self.db_connection:
-            self.db_cursor.close()
-            self.db_connection.close()
+            try:
+                self.db_cursor.close()
+                self.db_connection.close()
+            except:
+                pass
 
         self.snort_running = False
 
@@ -292,6 +336,7 @@ class SnortManager:
         print(f"📋 RAPPORT FINAL")
         print(f"{'=' * 80}")
         print(f"🚨 Alertes détectées: {self.alert_count}")
+        print(f"💾 Alertes enregistrées en DB: {self.db_insert_count}")
         print(f"{'=' * 80}")
 
     def is_running(self):
@@ -304,12 +349,14 @@ class SnortManager:
 
 _snort_manager = None
 
+
 def start_snort(interface="enp0s3"):
     """Démarre Snort (appelé depuis dashboard.py)"""
     global _snort_manager
     if _snort_manager is None:
         _snort_manager = SnortManager(interface=interface)
     return _snort_manager.start_snort()
+
 
 def stop_snort():
     """Arrête Snort (appelé depuis dashboard.py)"""
@@ -319,8 +366,21 @@ def stop_snort():
         _snort_manager = None
 
 
+# ============================================================
+# MAIN - Mode standalone
+# ============================================================
+
 if __name__ == "__main__":
-    # Mode standalone
+    def signal_handler(sig, frame):
+        print("\n\n🛑 Arrêt demandé...")
+        if '_snort_manager' in globals() and _snort_manager:
+            _snort_manager.stop_snort()
+        sys.exit(0)
+
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     manager = SnortManager(interface="enp0s3")
     try:
         if manager.start_snort():

@@ -4,11 +4,9 @@ import time
 import threading
 import re
 import os
-import signal
 import sys
 from datetime import datetime
 
-# Ajouter le chemin pour les imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data.db_connection import connect_db
 
@@ -25,110 +23,41 @@ class SnortManager:
         self.db_cursor = None
         self.db_insert_count = 0
 
-        # Créer le dossier de logs
         os.makedirs(log_dir, exist_ok=True)
 
-        # Vider l'ancien fichier d'alertes
         if os.path.exists(self.alert_file):
             os.remove(self.alert_file)
 
-        # Initialiser la connexion DB
         self.init_database()
 
     def init_database(self):
-        """Initialise la connexion à PostgreSQL"""
         try:
             self.db_connection = connect_db()
             if self.db_connection:
                 self.db_cursor = self.db_connection.cursor()
                 print("✅ Connexion à PostgreSQL établie")
-                return True
         except Exception as e:
             print(f"⚠️ Base de données non disponible: {e}")
-        return False
-
-    def ensure_db_connection(self):
-        """Vérifie et rétablit la connexion DB si nécessaire"""
-        try:
-            if not self.db_connection or self.db_connection.closed:
-                print("⚠️ Connexion DB perdue, reconnexion...")
-                return self.init_database()
-
-            # Tester la connexion
-            self.db_cursor.execute("SELECT 1")
-            self.db_cursor.fetchone()
-            return True
-        except Exception:
-            print("⚠️ Connexion DB perdue, reconnexion...")
-            try:
-                self.db_connection.close()
-            except:
-                pass
-            return self.init_database()
 
     def convert_timestamp(self, timestamp_str):
-        """Convertit le timestamp Snort en format PostgreSQL"""
         try:
             date_part, time_part = timestamp_str.split('-')
             month, day = date_part.split('/')
             year = datetime.now().year
-            pg_timestamp = f"{year}-{month}-{day} {time_part}"
-            return pg_timestamp
-        except Exception as e:
-            print(f"⚠️ Erreur conversion timestamp: {e}")
+            return f"{year}-{month}-{day} {time_part}"
+        except:
             return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     def convert_severity(self, severity_value):
-        """Convertit la sévérité Snort (Priority) en texte"""
-        # Priority 1 ou 0 = élevée, 2 = moyenne, 3 = basse
         if severity_value == 0 or severity_value == 1:
             return 'élevée'
         elif severity_value == 2:
             return 'moyenne'
         elif severity_value == 3:
             return 'basse'
-        else:
-            return 'inconnue'
-
-    def get_network_metrics(self):
-        """Récupère les métriques réseau (loss, traffic, services)"""
-        loss_rate = "0"
-        try:
-            result = subprocess.run(
-                ["ping", "-c", "2", "-q", "8.8.8.8"],
-                capture_output=True, text=True, timeout=5
-            )
-            match = re.search(r'(\d+)% packet loss', result.stdout)
-            if match:
-                loss_rate = match.group(1)
-        except:
-            pass
-
-        rx_traffic = "0"
-        tx_traffic = "0"
-        try:
-            with open(f"/sys/class/net/{self.interface}/statistics/rx_bytes", 'r') as f:
-                rx_bytes = int(f.read().strip())
-            with open(f"/sys/class/net/{self.interface}/statistics/tx_bytes", 'r') as f:
-                tx_bytes = int(f.read().strip())
-            rx_traffic = f"{rx_bytes / 1024 / 1024:.2f}"
-            tx_traffic = f"{tx_bytes / 1024 / 1024:.2f}"
-        except:
-            pass
-
-        active_services = ""
-        try:
-            result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True)
-            ports = re.findall(r':(\d+)', result.stdout)
-            active_services = ','.join(sorted(set(ports))[:10])
-        except:
-            pass
-
-        return loss_rate, f"RX:{rx_traffic}MB TX:{tx_traffic}MB", active_services
+        return 'inconnue'
 
     def parse_alert(self, header_line, ip_line):
-        """Parse une alerte Snort"""
-        # Timestamp
         timestamp = ""
         ts_match = re.search(r'(\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+)', ip_line)
         if ts_match:
@@ -136,31 +65,26 @@ class SnortManager:
         else:
             timestamp = datetime.now().strftime("%m/%d-%H:%M:%S")
 
-        # SID
         sid = ""
         sid_match = re.search(r'\[(\d+:\d+:\d+)\]', header_line)
         if sid_match:
             sid = sid_match.group(1)
 
-        # Message
         msg = ""
         msg_match = re.search(r'\[\*\*\] \[[0-9:]+\] (.*) \[\*\*\]', header_line)
         if msg_match:
             msg = msg_match.group(1).strip()
 
-        # Priorité
         priority = 0
         prio_match = re.search(r'Priority: (\d+)', header_line)
         if prio_match:
             priority = int(prio_match.group(1))
 
-        # Protocole
         proto = ""
         proto_match = re.search(r'\{([^}]+)\}', ip_line)
         if proto_match:
             proto = proto_match.group(1)
 
-        # IP et ports
         ip_ports = re.findall(r'(\d+\.\d+\.\d+\.\d+):(\d+)', ip_line)
 
         src_ip = None
@@ -175,9 +99,6 @@ class SnortManager:
             dst_ip = ip_ports[1][0]
             dst_port = int(ip_ports[1][1]) if ip_ports[1][1].isdigit() else None
 
-        # Métriques réseau
-        loss_rate, traffic, services = self.get_network_metrics()
-
         return {
             'timestamp_raw': timestamp,
             'timestamp': self.convert_timestamp(timestamp),
@@ -189,23 +110,16 @@ class SnortManager:
             'protocol': proto,
             'src_port': src_port,
             'dst_port': dst_port,
-            'loss': loss_rate,
-            'traffic': traffic,
-            'services': services,
             'detection_engine': sid.split(':')[0] if sid else 'Snort'
         }
 
     def save_to_db(self, alert):
-        """Insère l'alerte dans la base avec conversion de sévérité"""
-        if not self.ensure_db_connection():
-            print("   ⚠️ Pas de connexion DB, alerte non sauvegardée")
+        if not self.db_connection:
             return False
 
         try:
-            # 🔥 Convertir la sévérité (0 ou 1 → élevée)
             severity_text = self.convert_severity(alert['severity'])
 
-            # Nettoyer les valeurs
             attack_type = alert['attack_type']
             if attack_type and len(attack_type) > 200:
                 attack_type = attack_type[:200]
@@ -218,31 +132,26 @@ class SnortManager:
                 INSERT INTO alertes (
                     timestamp, source_ip, destination_ip,
                     attack_type, severity, detection_engine,
-                    details, protocol, source_port,
-                    destination_port, loss, volume, service
+                    details, protocol, source_port, destination_port
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 alert['timestamp'],
                 alert['src_ip'],
                 alert['dst_ip'],
                 attack_type,
-                severity_text,  # ← Version texte (élevée, moyenne, basse)
+                severity_text,
                 alert['detection_engine'],
                 details,
                 alert['protocol'],
                 alert['src_port'],
-                alert['dst_port'],
-                alert['loss'],
-                alert['traffic'],
-                alert['services']
+                alert['dst_port']
             ))
             self.db_connection.commit()
             self.db_insert_count += 1
             return True
-
         except Exception as e:
-            print(f"   ❌ Erreur insertion DB: {e}")
+            print(f"   ❌ Erreur DB: {e}")
             try:
                 self.db_connection.rollback()
             except:
@@ -250,27 +159,17 @@ class SnortManager:
             return False
 
     def start_snort(self):
-        """Démarre Snort et lit les alertes"""
         try:
-            cmd = [
-                "sudo", "snort",
-                "-A", "fast",
-                "-c", "/etc/snort/snort.conf",
-                "-i", self.interface,
-                "-l", self.log_dir
-            ]
+            cmd = f"sudo snort -A fast -c /etc/snort/snort.conf -i {self.interface} -l {self.log_dir}"
 
             print(f"\n{'=' * 80}")
             print(f"🔍 SNORT - SURVEILLANCE RÉSEAU")
             print(f"{'=' * 80}")
             print(f"📡 Interface: {self.interface}")
-            print(f"📁 Logs: {self.log_dir}/alert")
             print(f"💾 Base de données: {'✅ Activée' if self.db_connection else '❌ Désactivée'}")
             print(f"{'=' * 80}\n")
 
-            print("🚀 Snort actif... Lance ton attaque !\n")
-
-            self.snort_process = subprocess.Popen(cmd)
+            self.snort_process = subprocess.Popen(cmd, shell=True)
             self.snort_running = True
 
             thread = threading.Thread(target=self._tail_alerts, daemon=True)
@@ -278,11 +177,10 @@ class SnortManager:
 
             return True
         except Exception as e:
-            print(f"❌ Erreur démarrage Snort: {e}")
+            print(f"❌ Erreur: {e}")
             return False
 
     def _tail_alerts(self):
-        """Lit le fichier alert en temps réel"""
         time.sleep(2)
 
         while self.snort_running and self.snort_process and self.snort_process.poll() is None:
@@ -303,79 +201,39 @@ class SnortManager:
                             if "[**]" in line:
                                 header_line = line
                                 next_line = f.readline().strip()
-
                                 if next_line:
                                     self.alert_count += 1
                                     alert = self.parse_alert(header_line, next_line)
-                                    self._display_alert(alert)
-
+                                    severity_text = self.convert_severity(alert['severity'])
+                                    print(f"\n\033[91m🚨 {alert['attack_type']} [{severity_text}]\033[0m")
                                     if self.db_connection:
-                                        if self.save_to_db(alert):
-                                            print(f"   💾 [DB] Alerte #{self.db_insert_count} enregistrée")
-                except Exception as e:
-                    print(f"Erreur lecture fichier: {e}")
+                                        self.save_to_db(alert)
+                except:
+                    pass
             else:
                 time.sleep(1)
 
-    def _display_alert(self, alert):
-        """Affiche l'alerte formatée"""
-        severity_text = self.convert_severity(alert['severity'])
-
-        # Choisir la couleur selon la sévérité
-        if severity_text == 'élevée':
-            color = '\033[91m'  # Rouge
-        elif severity_text == 'moyenne':
-            color = '\033[93m'  # Jaune
-        else:
-            color = '\033[92m'  # Vert
-
-        print(f"\n{color}{'=' * 80}\033[0m")
-        print(f"{color}🚨 ALERTE #{self.alert_count}\033[0m")
-        print(f"{color}{'=' * 80}\033[0m")
-        print(f"📅 Timestamp: {alert['timestamp_raw']}")
-        print(f"🆔 SID: {alert['sid']}")
-        print(f"📍 Source: {alert['src_ip']}:{alert['src_port']}")
-        print(f"🎯 Destination: {alert['dst_ip']}:{alert['dst_port']}")
-        print(f"📡 Protocole: {alert['protocol']}")
-        print(f"⚠️ Type: {alert['attack_type']}")
-        print(f"🔴 Sévérité: {severity_text}")
-        print(f"📊 Loss: {alert['loss']}% | Traffic: {alert['traffic']}")
-        print(f"🔧 Services: {alert['services']}")
-        print(f"{color}{'=' * 80}\033[0m")
-
+    # ============================================================
+    # ⚡ SEULE MODIFICATION : L'ARRÊT (rapide et non-bloquant)
+    # ============================================================
     def stop_snort(self):
-        """Arrête Snort"""
-        if self.snort_process:
-            self.snort_process.terminate()
-            time.sleep(2)
-            if self.snort_process.poll() is None:
-                self.snort_process.kill()
-
-        subprocess.run(["sudo", "pkill", "-f", "snort"], capture_output=True)
-
-        if self.db_connection:
-            try:
-                self.db_cursor.close()
-                self.db_connection.close()
-            except:
-                pass
+        """Arrête Snort - rapide, non-bloquant, ne ferme pas l'app"""
+        try:
+            subprocess.run(["sudo", "pkill", "-f", "snort"],
+                           capture_output=True, timeout=2)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["sudo", "pkill", "-9", "-f", "snort"],
+                           capture_output=True)
+        except:
+            pass
 
         self.snort_running = False
-
-        print(f"\n{'=' * 80}")
-        print(f"📋 RAPPORT FINAL")
-        print(f"{'=' * 80}")
-        print(f"🚨 Alertes détectées: {self.alert_count}")
-        print(f"💾 Alertes enregistrées en DB: {self.db_insert_count}")
-        print(f"{'=' * 80}")
+        self.snort_process = None
+        print("\n🛑 Snort arrêté")
 
     def is_running(self):
         return self.snort_running
 
-
-# ============================================================
-# Fonctions pour l'intégration avec dashboard.py
-# ============================================================
 
 _snort_manager = None
 
@@ -387,39 +245,18 @@ def start_snort(interface="enp0s3"):
     return _snort_manager.start_snort()
 
 
-def stop_snort(self):
-    """Arrête Snort"""
-    try:
-        # Tuer FORCEMENT tous les processus Snort
-        subprocess.run(["sudo", "pkill", "-9", "-f", "snort"], capture_output=True)
+def stop_snort():
+    global _snort_manager
+    if _snort_manager:
+        _snort_manager.stop_snort()
+        _snort_manager = None
 
-        if self.snort_process:
-            try:
-                self.snort_process.kill()
-            except:
-                pass
-
-        self.snort_running = False
-        print("🛑 Snort arrêté")
-    except Exception as e:
-        print(f"❌ Erreur arrêt: {e}")
-        self.snort_running = False
 
 if __name__ == "__main__":
-    def signal_handler(sig, frame):
-        print("\n\n🛑 Arrêt demandé...")
-        if '_snort_manager' in globals() and _snort_manager:
-            _snort_manager.stop_snort()
-        sys.exit(0)
-
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
     manager = SnortManager(interface="enp0s3")
     try:
-        if manager.start_snort():
-            while manager.is_running():
-                time.sleep(1)
+        manager.start_snort()
+        while manager.is_running():
+            time.sleep(1)
     except KeyboardInterrupt:
         manager.stop_snort()

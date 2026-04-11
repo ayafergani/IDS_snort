@@ -23,7 +23,7 @@ from matplotlib.figure import Figure
 from config import COLORS
 from gui.components import AnimatedLabel, FocusableFrame
 from data.dashboard import DatabaseManager
-from snort_module.lancement import SnortManager  # ✅ Import du SnortManager
+from snort_module.lancement import SnortManager, start_snort, stop_snort  # ✅ Import du SnortManager
 
 
 class TrafficHistogram(FigureCanvas):
@@ -298,7 +298,7 @@ class SimplePage(QWidget):
             print("🚀 Démarrage du système...")
 
             # Démarrer Snort
-            success = self.snort.start()
+            success = start_snort(interface="enp0s3")
 
             # Vérifier si Snort tourne vraiment
             if success or self.snort.is_running():
@@ -484,7 +484,7 @@ class SimplePage(QWidget):
         """Fermeture propre de l'application"""
         # Arrêter Snort si encore en cours d'exécution
         if self.is_running:
-            self.snort.stop()
+            stop_snort()
 
         # Fermer la connexion à la base de données
         if hasattr(self, 'db_manager') and self.db_manager.connection:

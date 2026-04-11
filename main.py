@@ -1,207 +1,268 @@
 import sys
-import os
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QFrame, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QPropertyAnimation, QSize, QRect
+from PyQt6.QtGui import QPixmap, QIcon
 
-# Import de ta config
-from config import COLORS
+# ================= IMPORT DES INTERFACES =================
+from GUI.dashboard import SimplePage
 
+try:
+    from GUI.alerte import AlertInterface
+except:
+    AlertInterface = QWidget
 
-class NavButton(QPushButton):
-    def __init__(self, text, icon_str, index, parent=None):
-        super().__init__(parent)
-        self.setCheckable(True)
-        self.setFixedHeight(50)
-        self.index = index
-        self.full_text = text
-        self.icon_str = icon_str
-        self.update_style(False)
+try:
+    from GUI.traficreseaux import TrafficAnalyzerInterface
+except:
+    TrafficAnalyzerInterface = QWidget
 
-    def update_style(self, is_collapsed):
-        display_text = f" {self.icon_str}" if is_collapsed else f"  {self.icon_str}   {self.full_text}"
-        self.setText(display_text)
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: transparent;
-                color: #CBD5E1; 
-                border: none;
-                border-left: 4px solid transparent;
-                text-align: left;
-                padding-left: 20px;
-                font-size: 13px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background-color: #334155; color: white; }}
-            QPushButton:checked {{
-                background-color: #2D3A4F;
-                color: {COLORS['info']};
-                border-left: 4px solid {COLORS['info']};
-            }}
-        """)
+try:
+    from GUI.configuration import InterfaceParametresIDS
+
+    ConfigurationPage = InterfaceParametresIDS
+except:
+    ConfigurationPage = QWidget
+
+try:
+    from GUI.Rapport import RapportInterface
+except:
+    RapportInterface = QWidget
+
+try:
+    from GUI.ML import DetectionConfidenceWidget
+
+    MLInterface = DetectionConfidenceWidget
+except:
+    MLInterface = QWidget
 
 
+# ================= MAIN WINDOW =================
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("IDS-Snort")
-        self.is_collapsed = False
 
-        self.setStyleSheet(f"background-color: {COLORS['bg_dark']};")
+        self.setWindowTitle("IDS - Système de Détection d'Intrusion")
 
+        # Obtenir la taille de l'écran
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+
+        # Ajuster la taille de la fenêtre à l'écran (avec une petite marge)
+        window_width = screen_geometry.width() - 20
+        window_height = screen_geometry.height() - 80
+
+        # Centrer la fenêtre
+        center_x = (screen_geometry.width() - window_width) // 2
+        center_y = (screen_geometry.height() - window_height) // 2
+
+        self.setGeometry(center_x, center_y, window_width, window_height)
+        self.setMinimumSize(900, 600)  # Taille minimum raisonnable
+
+        # Layout principal sans marges
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        self.page_instances = {}
-
-        self.setup_sidebar()
-
-        self.stack = QStackedWidget()
-        self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.stack, 1)
-        self.stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        self.switch_page(0)
-        self.setLayout(self.main_layout)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-    def setup_sidebar(self):
+        # ================= SIDEBAR =================
         self.sidebar = QFrame()
         self.sidebar.setMinimumWidth(220)
         self.sidebar.setMaximumWidth(220)
-        self.sidebar.setStyleSheet("background-color: #1E293B; border-right: 1px solid #334155;")
+        self.sidebar.setStyleSheet("""
+            QFrame {
+                background-color: #1E2E4F;
+                border-right: 1px solid #335889;
+            }
+        """)
 
-        layout = QVBoxLayout(self.sidebar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self.sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar_layout.setContentsMargins(10, 10, 10, 10)
+        self.sidebar_layout.setSpacing(5)
 
-        # Logo - Version simplifiée avec un seul label qui change de texte
-        self.logo_label = QLabel("🛡️ Snort & ML IDS")
-        self.logo_label.setFixedHeight(80)
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.logo_label.setStyleSheet(
-            f"color: {COLORS['info']}; font-weight: 900; font-size: 16px; "
-            f"background: transparent; font-family: 'Segoe UI', monospace; "
-            f"border-bottom: 1px solid #334155;"
-        )
-        layout.addWidget(self.logo_label)
-        layout.addSpacing(10)
-
-        # Boutons de navigation
-        self.nav_buttons = []
-        menus = [("Dashboard", "📊"), ("Alertes", "⚠️"), ("Analyse", "📈"),
-                 ("Intelligence", "🤖"), ("Paramètres", "⚙️"), ("Rapports", "📄")]
-
-        for i, (text, icon) in enumerate(menus):
-            btn = NavButton(text, icon, i)
-            btn.clicked.connect(lambda _, idx=i: self.switch_page(idx))
-            layout.addWidget(btn)
-            self.nav_buttons.append(btn)
-
-        layout.addStretch()
-
-        # Bouton Toggle
-        self.toggle_btn = QPushButton("◀")
-        self.toggle_btn.setFixedHeight(40)
+        # ================= TOGGLE =================
+        self.toggle_btn = QPushButton("☰")
         self.toggle_btn.setStyleSheet("""
             QPushButton {
-                color: #8899AA;
+                color: white; 
+                font-size: 20px; 
                 border: none;
-                border-top: 1px solid #334155;
-                font-size: 14px;
-                font-weight: bold;
+                padding: 8px;
+                text-align: left;
             }
             QPushButton:hover {
-                background-color: #334155;
-                color: white;
+                background-color: #3A5FA0;
+                border-radius: 8px;
             }
         """)
         self.toggle_btn.clicked.connect(self.toggle_sidebar)
-        layout.addWidget(self.toggle_btn)
+        self.sidebar_layout.addWidget(self.toggle_btn)
 
-    def switch_page(self, index):
-        if index not in self.page_instances:
-            self.create_page(index)
+        # ================= TITLE =================
+        title = QLabel("🛡️ IDS MENU")
+        title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; padding: 10px;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sidebar_layout.addWidget(title)
 
-        self.stack.setCurrentWidget(self.page_instances[index])
-        for i, btn in enumerate(self.nav_buttons):
-            btn.setChecked(i == index)
+        # Ligne de séparation
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #335889; max-height: 1px;")
+        self.sidebar_layout.addWidget(separator)
 
-    def create_page(self, index):
+        # ================= STACK =================
+        self.stack = QStackedWidget()
+        self.stack.setStyleSheet("""
+            QStackedWidget {
+                background-color: #1E2E4F;
+            }
+        """)
+
+        # ================= PAGES =================
+        print("📱 Chargement des interfaces...")
+
+        self.dashboard_page = SimplePage()
+        self.alert_page = AlertInterface()
+        self.traffic_page = TrafficAnalyzerInterface()
+        self.ml_page = MLInterface()
+        self.config_page = ConfigurationPage()
+        self.report_page = RapportInterface()
+
+        self.stack.addWidget(self.dashboard_page)
+        self.stack.addWidget(self.alert_page)
+        self.stack.addWidget(self.traffic_page)
+        self.stack.addWidget(self.ml_page)
+        self.stack.addWidget(self.config_page)
+        self.stack.addWidget(self.report_page)
+
+        # ================= BOUTONS AVEC ICONES =================
+        menu_items = [
+            ("dashboard.png", "📊 Dashboard", lambda: self.stack.setCurrentWidget(self.dashboard_page)),
+            ("alert.png", "⚠️ Alertes", lambda: self.stack.setCurrentWidget(self.alert_page)),
+            ("analysee.png", "📈 Analyse Trafic", lambda: self.stack.setCurrentWidget(self.traffic_page)),
+            ("ml.png", "🤖 Machine Learning", lambda: self.stack.setCurrentWidget(self.ml_page)),
+            ("para.png", "⚙️ Paramètres", lambda: self.stack.setCurrentWidget(self.config_page)),
+            ("report.png", "📄 Rapports", lambda: self.stack.setCurrentWidget(self.report_page)),
+        ]
+
+        for image_name, text, callback in menu_items:
+            btn = self.create_menu_button(image_name, text, callback)
+            self.sidebar_layout.addWidget(btn)
+
+        self.sidebar_layout.addStretch()
+
+        # Version en bas
+        version_label = QLabel("v1.0 | IDS System")
+        version_label.setStyleSheet("color: #8899AA; font-size: 10px; padding: 10px;")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sidebar_layout.addWidget(version_label)
+
+        self.main_layout.addWidget(self.sidebar)
+        self.main_layout.addWidget(self.stack, 1)  # Le stack prend tout l'espace restant
+
+        # Appliquer la page dashboard par défaut
+        self.stack.setCurrentWidget(self.dashboard_page)
+
+        print("✅ Interface principale chargée avec succès")
+
+    # ================= BOUTON MENU =================
+    def create_menu_button(self, image_name, text, callback):
+        btn = QPushButton(f"  {text}")
+        btn.setMinimumHeight(45)
+
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: white;
+                padding: 10px 15px;
+                text-align: left;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: normal;
+            }
+            QPushButton:hover {
+                background-color: #3A5FA0;
+            }
+            QPushButton:pressed {
+                background-color: #253456;
+            }
+        """)
+
+        # Essayer de charger l'icône
+        icon_size = 24
         try:
-            if index == 0:
-                from gui.dashboard import SimplePage
-                widget = SimplePage()
-            elif index == 1:
-                from gui.alerte import AlertInterface
-                widget = AlertInterface()
-            elif index == 2:
-                from gui.traficreseaux import TrafficAnalyzerInterface
-                widget = TrafficAnalyzerInterface()
-            elif index == 3:
-                from gui.ML import IDSWindow
-                widget = IDSWindow()
-            elif index == 4:
-                from gui.configuration import InterfaceParametresIDS
-                widget = InterfaceParametresIDS()
-            elif index == 5:
-                from gui.Rapport import RapportInterface
-                widget = RapportInterface()
+            pixmap = QPixmap(image_name)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
+                    icon_size, icon_size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                icon = QIcon()
+                icon.addPixmap(scaled_pixmap)
+                btn.setIcon(icon)
+                btn.setIconSize(QSize(icon_size, icon_size))
             else:
-                widget = QWidget()
-
-            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            widget.setMinimumSize(0, 0)
-            self.page_instances[index] = widget
-            self.stack.addWidget(widget)
+                # Si image non trouvée, on utilise juste l'emoji dans le texte
+                pass
         except Exception as e:
-            print(f"Erreur chargement page {index}: {e}")
+            print(f"⚠️ Image non trouvée: {image_name}")
 
+        btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        btn.clicked.connect(callback)
+
+        return btn
+
+    # ================= TOGGLE SIDEBAR =================
     def toggle_sidebar(self):
-        width = self.sidebar.width()
-        new_width = 70 if width > 100 else 220
-        self.is_collapsed = (new_width == 70)
+        current_width = self.sidebar.width()
+        new_width = 70 if current_width > 100 else 220
 
-        # Animation de la sidebar
-        self.sidebar.setMaximumWidth(16777215)
+        # Animation
         self.anim = QPropertyAnimation(self.sidebar, b"minimumWidth")
-        self.anim.setDuration(250)
-        self.anim.setStartValue(width)
+        self.anim.setDuration(300)
+        self.anim.setStartValue(current_width)
         self.anim.setEndValue(new_width)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+
+        self.anim2 = QPropertyAnimation(self.sidebar, b"maximumWidth")
+        self.anim2.setDuration(300)
+        self.anim2.setStartValue(current_width)
+        self.anim2.setEndValue(new_width)
+
         self.anim.start()
-        self.sidebar.setMaximumWidth(new_width)
+        self.anim2.start()
 
-        # Changer le texte du logo
-        if self.is_collapsed:
-            self.logo_label.setText("🛡️")
-            self.logo_label.setStyleSheet(
-                f"color: {COLORS['info']}; font-weight: 900; font-size: 28px; "
-                f"background: transparent; border-bottom: 1px solid #334155;"
-            )
-            self.toggle_btn.setText("▶")
-            self.toggle_btn.setToolTip("Développer le menu")
-        else:
-            self.logo_label.setText("🛡️ Snort & ML IDS")
-            self.logo_label.setStyleSheet(
-                f"color: {COLORS['info']}; font-weight: 900; font-size: 16px; "
-                f"background: transparent; font-family: 'Segoe UI', monospace; "
-                f"border-bottom: 1px solid #334155;"
-            )
-            self.toggle_btn.setText("◀")
-            self.toggle_btn.setToolTip("Réduire le menu")
+        # Changer le texte des boutons quand la sidebar est réduite
+        for i, btn in enumerate(self.sidebar_layout.findChildren(QPushButton)):
+            if i >= 2 and i <= 7:  # Les boutons de menu
+                if new_width == 70:
+                    # Extraire l'emoji du texte
+                    current_text = btn.text()
+                    emoji = current_text.split()[0] if current_text else "📊"
+                    btn.setText(f"  {emoji}")
+                else:
+                    # Remettre le texte complet
+                    texts = ["  📊 Dashboard", "  ⚠️ Alertes", "  📈 Analyse Trafic",
+                             "  🤖 Machine Learning", "  ⚙️ Paramètres", "  📄 Rapports"]
+                    if i - 2 < len(texts):
+                        btn.setText(texts[i - 2])
 
-        # Mise à jour des boutons de navigation
-        for btn in self.nav_buttons:
-            btn.update_style(self.is_collapsed)
+    def resizeEvent(self, event):
+        """Gère le redimensionnement de la fenêtre"""
+        super().resizeEvent(event)
+        # Optionnel: ajuster quelque chose si nécessaire
 
 
+# ================= MAIN =================
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # Style global
+    app.setStyle('Fusion')
+
     window = MainWindow()
-    window.showMaximized()
+    window.show()
+
     sys.exit(app.exec())

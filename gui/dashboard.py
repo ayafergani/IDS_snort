@@ -490,16 +490,18 @@ class SimplePage(QWidget):
         return frame
 
     def closeEvent(self, event):
-        """Fermeture propre de l'application"""
-        # Arrêter Snort si encore en cours d'exécution
-        if self.is_running:
-            stop_snort()
+        """Fermeture propre de l'application - arrête Snort avant de quitter"""
+        print("🛑 Fermeture de l'application...")
+
+        # Arrêter Snort si encore en cours
+        if hasattr(self, 'snort') and self.snort and self.is_running:
+            self.snort.stop_snort()
 
         # Fermer la connexion à la base de données
         if hasattr(self, 'db_manager') and self.db_manager.connection:
             self.db_manager.close_connection()
 
-        event.accept()
+        event.accept()  # ← Accepte la fermeture (l'application se ferme)
 
 
 if __name__ == "__main__":

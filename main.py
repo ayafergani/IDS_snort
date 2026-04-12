@@ -7,34 +7,34 @@ from PyQt6.QtCore import Qt, QPropertyAnimation, QSize, QRect
 from PyQt6.QtGui import QPixmap, QIcon
 
 # ================= IMPORT DES INTERFACES =================
-from GUI.dashboard import SimplePage
+from gui.dashboard import SimplePage
 
 try:
-    from GUI.alerte import AlertInterface
+    from gui.alerte import AlertInterface
 except:
     AlertInterface = QWidget
 
 try:
-    from GUI.traficreseaux import TrafficAnalyzerInterface
+    from gui.traficreseaux import TrafficAnalyzerInterface
 except:
     TrafficAnalyzerInterface = QWidget
 
 try:
-    from GUI.configuration import InterfaceParametresIDS
+    from gui.configuration import InterfaceParametresIDS
 
     ConfigurationPage = InterfaceParametresIDS
 except:
     ConfigurationPage = QWidget
 
 try:
-    from GUI.Rapport import RapportInterface
+    from gui.Rapport import RapportInterface
 except:
     RapportInterface = QWidget
 
 try:
-    from GUI.ML import DetectionConfidenceWidget
+    from gui.ML import IDSWindow
 
-    MLInterface = DetectionConfidenceWidget
+    MLInterface = IDSWindow
 except:
     MLInterface = QWidget
 
